@@ -1,7 +1,9 @@
 package canvas
 
 import (
+	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
@@ -69,10 +71,18 @@ func (api *APIManager) Get(endpoint string) (*http.Response, error) {
 
 	api.responseReceivedCount++
 	// Get Rate Limit Information
-	limit, _ := strconv.ParseFloat(resp.Header.Get("RateLimit-Remaining"), 64)
-	cost, _ := strconv.ParseFloat(resp.Header.Get("Request-Cost"), 64)
+	limit, err := strconv.ParseFloat(resp.Header.Get("RateLimit-Remaining"), 64)
+	if err != nil {
+		api.logger.Error("failed to parse RateLimit-Remaining header", "error", err)
+		limit = float64(api.maxRateLimit / 2) // set to 50% since we do not know the actual limit
+	}
+	cost, err := strconv.ParseFloat(resp.Header.Get("Request-Cost"), 64)
+	if err != nil {
+		api.logger.Error("failed to parse Request-Cost header", "error", err)
+		cost = api.averageRateCost // use the average rate cost if we cannot parse the header
+	}
 	if limit < float64(api.maxRateLimit) {
-		api.rateLimitRemaining = float64(limit)
+		api.rateLimitRemaining = limit
 	} else {
 		api.rateLimitRemaining = float64(api.maxRateLimit)
 	}
@@ -101,12 +111,25 @@ func (api *APIManager) Get(endpoint string) (*http.Response, error) {
 
 	// Extra Check if cost of last request is more than 20% higher than the average cost pause for 30 seconds
 	if previousCost > 0 && cost > previousCost*1.2 {
-		api.logger.Warn("Request cost is a significant increase from pervious requests, adding an extra delay", "previousAverageCost", previousCost, "currentCost", cost)
+		api.logger.Warn("Request cost is a significant increase from previous requests, adding an extra delay", "previousAverageCost", previousCost, "currentCost", cost)
 		delay = 30 * time.Second // Sleep for 30 seconds if the cost is significantly higher
 	}
 	if delay > 0 {
+		jitter := time.Duration(rand.Int63n(int64(delay)/4)) * time.Millisecond // Add jitter to the delay
 		api.logger.Info("Delaying request due to rate limit or cost increase", "delay", delay)
-		time.Sleep(delay)
+		time.Sleep(delay + jitter) // Add jitter to make sure every delay is slightly different from the others
 	}
 	return resp, nil
+}
+
+func (api *APIManager) Post(endpoint string, body []byte) (*http.Response, error) {
+	return nil, fmt.Errorf("post method not implemented yet")
+}
+
+func (api *APIManager) Put(endpoint string, body []byte) (*http.Response, error) {
+	return nil, fmt.Errorf("put method not implemented yet")
+}
+
+func (api *APIManager) Delete(endpoint string) (*http.Response, error) {
+	return nil, fmt.Errorf("delete method not implemented yet")
 }
