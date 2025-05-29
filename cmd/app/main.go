@@ -46,6 +46,7 @@ var (
 )
 
 func main() {
+	var results []ResultItem // Holder for final results
 	err := godotenv.Load(".env")
 	if err != nil {
 		fmt.Printf("Error loading .env file: %v\n", err)
@@ -66,17 +67,18 @@ func main() {
 	var courseList []CanvasCourse
 	for _, course := range courses {
 		if strings.HasPrefix(course.CourseSISID, "6253-") {
-			fmt.Printf("Course %s is part of Summer 2025\n", course.Name)
 			courseList = append(courseList, course)
+		} else {
+			fmt.Printf("Skipping course %s (ID: %d) - not part of Summer 2025 --%s--\n", course.Name, course.ID, course.CourseSISID)
 		}
 	}
+	fmt.Printf("Found %d courses for Summer 2025\n", len(courseList))
 
 	// Pull Individual Course Data
-	results := make([]ResultItem, 0) // Holder for final results
 	for _, course := range courseList {
+		fmt.Printf("Processing course: %s (ID: %d) Workflow State %s\n", course.Name, course.ID, course.WorkflowState)
 		// Check if course is published or not (workflow_state == "unavailable")
-		if course.WorkflowState == "unavailable" {
-			fmt.Printf("Processing course: %s (ID: %d)\n", course.Name, course.ID)
+		if course.WorkflowState == "unpublished" {
 			var result ResultItem
 			result.CourseID = course.ID
 			result.CourseName = course.Name
@@ -145,6 +147,7 @@ func main() {
 				result.FacultyName = "No Faculty"
 				result.FacultyEmail = "No Email"
 			}
+			fmt.Printf("Course %s (ID: %d) processed: Added to List (%d)\n", result.CourseName, result.CourseID, len(results)+1)
 			results = append(results, result)
 		}
 	}
@@ -159,6 +162,7 @@ func main() {
 			return
 		}
 	}
+	fmt.Printf("Gotten %d courses for Summer 2025\n", len(results))
 	outputFile := path.Join(filepath, "summer_2025_unpublished_courses.csv")
 	of, err := os.OpenFile(outputFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -173,20 +177,37 @@ func main() {
 		fmt.Printf("Error writing header to CSV: %v\n", err)
 		return
 	}
+	for _, result := range results {
+		record := []string{
+			fmt.Sprintf("%d,", result.CourseID),
+			fmt.Sprintf("%s,", result.CourseName),
+			fmt.Sprintf("%s,", result.Subject),
+			fmt.Sprintf("%s,", result.WithModules),
+			fmt.Sprintf("%s,", result.WithAssignments),
+			fmt.Sprintf("%s,", result.WithFrontPage),
+			fmt.Sprintf("%s,", result.FacultyName) +
+				result.FacultyEmail,
+		}
+		if err := writer.Write(record); err != nil {
+			fmt.Printf("Error writing record to CSV: %v\n", err)
+			return
+		}
+	}
 	fmt.Printf("Written Report to %s with %d entries\n", outputFile, len(results))
 }
 
 func getCourses(search string) ([]CanvasCourse, error) {
 	ep := fmt.Sprintf("accounts/1/courses?search_term=%s&per_page=100", search)
 	next := true               // assume more than one page of results
-	var courses []CanvasCourse // holder for all courses
 	page := 1                  // page counter for debugging
+	var courses []CanvasCourse // holder for all courses
 	for next {
 		resp, err := api.Get(ep)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching courses: %w", err)
 		}
 		defer resp.Body.Close() // Ensure the response body is closed after reading
+		ep = ""                 // Reset endpoint for next iteration
 		if resp.StatusCode != 200 {
 			return nil, fmt.Errorf("error fetching courses: received status code %d", resp.StatusCode)
 		}
@@ -207,22 +228,30 @@ func getCourses(search string) ([]CanvasCourse, error) {
 					// Extract the URL for the next page
 					link := strings.Split(part, ";")
 					link[0] = strings.Trim(link[0], " <>")
-					ep = link[0] // Update the endpoint to the next page
+					ep, _ = strings.CutPrefix(link[0], os.Getenv("BETA_API_URL")) // Remove base URL from the link
+					fmt.Printf("DEBUG: Next page endpoint: %s\n", ep)
 					next = true
-					continue // Break out of the loop to fetch the next page
+					break // Exit the loop since we found the next page
 				}
+			}
+			if ep == "" {
 				fmt.Printf("WARNING: No next page found in Link header, stopping pagination\n")
+				fmt.Println("DEBUG: Headers:")
+				for key, values := range resp.Header {
+					fmt.Printf("  %s: %s\n", key, values)
+				}
 				next = false // No next page found, stop pagination
 			}
 		}
 		page++
 		fmt.Printf("Getting Page %d of courses\n", page)
 	}
+	fmt.Printf("Found %d courses within %d total pages\n", len(courses), page)
 	return courses, nil
 }
 
 func getCourseTeachers(courseID int) ([]CanvasUser, error) {
-	fac, err := api.Get(fmt.Sprintf("courses/%d/teachers?per_page=100", courseID))
+	fac, err := api.Get(fmt.Sprintf("courses/%d/users?enrollment_type=teacher", courseID))
 	if err != nil {
 		return nil, fmt.Errorf("error fetching teachers for course %d: %w", courseID, err)
 	}

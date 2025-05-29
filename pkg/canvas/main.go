@@ -87,18 +87,26 @@ func (api *APIManager) Delete(endpoint string) (*http.Response, error) {
 	return nil, fmt.Errorf("delete method not implemented yet")
 }
 
+func debugHeaders(headers http.Header) {
+	fmt.Println("DEBUG: Headers:")
+	for key, values := range headers {
+		fmt.Printf("  %s: %s\n", key, values)
+	}
+}
+
 func (api *APIManager) checkRateLimit(resp *http.Response) error {
 	var delay time.Duration
 	previousCost := api.averageRateCost
 	// Get Rate Limit Information
-	limit, err := strconv.ParseFloat(resp.Header.Get("RateLimit-Remaining"), 64)
+	limit, err := strconv.ParseFloat(resp.Header.Get("X-Rate-Limit-Remaining"), 64)
 	if err != nil {
-		api.logger.Error("failed to parse RateLimit-Remaining header", "error", err)
+		api.logger.Error("failed to parse RateLimit-Remaining header", "error", err, "HeaderData", resp.Header.Get("RateLimit-Remaining"))
+		debugHeaders(resp.Header)
 		limit = float64(api.maxRateLimit / 2) // set to 50% since we do not know the actual limit
 	}
-	cost, err := strconv.ParseFloat(resp.Header.Get("Request-Cost"), 64)
+	cost, err := strconv.ParseFloat(resp.Header.Get("X-Request-Cost"), 64)
 	if err != nil {
-		api.logger.Error("failed to parse Request-Cost header", "error", err)
+		api.logger.Error("failed to parse Request-Cost header", "error", err, "HeaderData", resp.Header.Get("Request-Cost"))
 		cost = api.averageRateCost // use the average rate cost if we cannot parse the header
 	}
 	if limit < float64(api.maxRateLimit) {
@@ -131,13 +139,18 @@ func (api *APIManager) checkRateLimit(resp *http.Response) error {
 
 	// Extra Check if cost of last request is more than 20% higher than the average cost pause for 30 seconds
 	if previousCost > 0 && cost > previousCost*1.2 {
-		api.logger.Warn("Request cost is a significant increase from previous requests, adding an extra delay", "previousAverageCost", previousCost, "currentCost", cost)
-		delay = 30 * time.Second // Sleep for 30 seconds if the cost is significantly higher
+		if api.rateLimitRemaining >= float64(api.maxRateLimit)*0.95 {
+			// Remaining limit is high, so we can skip the delay
+		} else {
+			api.logger.Warn("Request cost is a significant increase from previous requests, adding an extra delay", "previousAverageCost", previousCost, "currentCost", cost)
+			delay = 30 * time.Second // Sleep for 30 seconds if the cost is significantly higher
+		}
 	}
 	if delay > 0 {
 		jitter := time.Duration(rand.Int63n(int64(delay)/4)) * time.Millisecond // Add jitter to the delay
 		api.logger.Info("Delaying request due to rate limit or cost increase", "delay", delay)
 		time.Sleep(delay + jitter) // Add jitter to make sure every delay is slightly different from the others
+		api.logger.Info("Resuming after delay", "delay", delay+jitter)
 	}
 	return nil
 }
