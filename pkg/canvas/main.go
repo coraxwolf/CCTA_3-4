@@ -55,9 +55,7 @@ func NewAPI(
 }
 
 func (api *APIManager) Get(endpoint string) (*http.Response, error) {
-	var delay time.Duration
 	api.requestSendCount++
-	previousCost := api.averageRateCost
 	req, err := http.NewRequest("GET", api.config.BaseURL+endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -70,6 +68,28 @@ func (api *APIManager) Get(endpoint string) (*http.Response, error) {
 	}
 
 	api.responseReceivedCount++
+	if err := api.checkRateLimit(resp); err != nil {
+		api.logger.Error("error checking rate limit", "error", err)
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (api *APIManager) Post(endpoint string, body []byte) (*http.Response, error) {
+	return nil, fmt.Errorf("post method not implemented yet")
+}
+
+func (api *APIManager) Put(endpoint string, body []byte) (*http.Response, error) {
+	return nil, fmt.Errorf("put method not implemented yet")
+}
+
+func (api *APIManager) Delete(endpoint string) (*http.Response, error) {
+	return nil, fmt.Errorf("delete method not implemented yet")
+}
+
+func (api *APIManager) checkRateLimit(resp *http.Response) error {
+	var delay time.Duration
+	previousCost := api.averageRateCost
 	// Get Rate Limit Information
 	limit, err := strconv.ParseFloat(resp.Header.Get("RateLimit-Remaining"), 64)
 	if err != nil {
@@ -119,17 +139,5 @@ func (api *APIManager) Get(endpoint string) (*http.Response, error) {
 		api.logger.Info("Delaying request due to rate limit or cost increase", "delay", delay)
 		time.Sleep(delay + jitter) // Add jitter to make sure every delay is slightly different from the others
 	}
-	return resp, nil
-}
-
-func (api *APIManager) Post(endpoint string, body []byte) (*http.Response, error) {
-	return nil, fmt.Errorf("post method not implemented yet")
-}
-
-func (api *APIManager) Put(endpoint string, body []byte) (*http.Response, error) {
-	return nil, fmt.Errorf("put method not implemented yet")
-}
-
-func (api *APIManager) Delete(endpoint string) (*http.Response, error) {
-	return nil, fmt.Errorf("delete method not implemented yet")
+	return nil
 }
