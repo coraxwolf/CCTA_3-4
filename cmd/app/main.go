@@ -82,6 +82,7 @@ func main() {
 			var result ResultItem
 			result.CourseID = course.ID
 			result.CourseName = course.Name
+			result.Format = course.Format
 			parts := strings.Split(course.CourseSISID, "-")
 			if len(parts) == 4 {
 				result.Subject = parts[2] // Assuming the subject is the third part of the SIS ID
@@ -141,8 +142,8 @@ func main() {
 						facultyEmails = append(facultyEmails, "No Email")
 					}
 				}
-				result.FacultyName = strings.Join(facultyNames, ", ")
-				result.FacultyEmail = strings.Join(facultyEmails, ", ")
+				result.FacultyName = strings.Join(facultyNames, "; ")
+				result.FacultyEmail = strings.Join(facultyEmails, "; ")
 			} else {
 				result.FacultyName = "No Faculty"
 				result.FacultyEmail = "No Email"
@@ -172,21 +173,22 @@ func main() {
 	defer of.Close()
 	writer := csv.NewWriter(of)
 	defer writer.Flush()
-	header := []string{"course_id", "course_name", "subject", "with_modules", "with_assignments", "with_front_page", "faculty_name", "faculty_email"}
+	header := []string{"course_id", "course_name", "format", "subject", "with_modules", "with_assignments", "with_front_page", "faculty_name", "faculty_email"}
 	if err := writer.Write(header); err != nil {
 		fmt.Printf("Error writing header to CSV: %v\n", err)
 		return
 	}
 	for _, result := range results {
 		record := []string{
-			fmt.Sprintf("%d,", result.CourseID),
-			fmt.Sprintf("%s,", result.CourseName),
-			fmt.Sprintf("%s,", result.Subject),
-			fmt.Sprintf("%s,", result.WithModules),
-			fmt.Sprintf("%s,", result.WithAssignments),
-			fmt.Sprintf("%s,", result.WithFrontPage),
-			fmt.Sprintf("%s,", result.FacultyName) +
-				result.FacultyEmail,
+			fmt.Sprintf("%d", result.CourseID),
+			result.CourseName,
+			result.Format,
+			result.Subject,
+			result.WithModules,
+			result.WithAssignments,
+			result.WithFrontPage,
+			result.FacultyName,
+			result.FacultyEmail,
 		}
 		if err := writer.Write(record); err != nil {
 			fmt.Printf("Error writing record to CSV: %v\n", err)
